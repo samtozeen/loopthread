@@ -1,0 +1,442 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<title>LoopThread Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: sticky role switcher over one working panel per role; the lot travels Factory -> Hub -> Buyer -> Passport */
+:root {
+  --bg: #f6f7fa; --surface: #ffffff; --sunk: #eef1f6; --line: #d9dee8;
+  --fg: #1e2433; --muted: #5d6576; --indigo: #1b2a4a; --on-indigo: #ffffff;
+  --thread: #d06a1f; --thread-soft: #fcebdd; --ok: #2e8b6e; --ok-soft: #e1f2ec; --warn: #a8761c; --bad: #b8392b;
+  --g-cA: #1b2a4a; --g-cB: #4a6fa5; --g-poly: #2e8b6e; --g-blend: #bf8b2e; --g-scrap: #d06a1f; --g-unusable: #9aa2b1;
+  --display: "Source Serif 4", Cambria, Georgia, serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11151f; --surface: #1a2030; --sunk: #222a3d; --line: #323b52;
+  --fg: #e7eaf1; --muted: #a2aabb; --indigo: #2c3f6b; --on-indigo: #ffffff;
+  --thread: #f0904a; --thread-soft: #3a2a1f; --ok: #5cc4a0; --ok-soft: #1c3329; --warn: #e0b057; --bad: #ef7a6c;
+  --g-cA: #8fa8d8; --g-cB: #5b7fb8; --g-poly: #5cc4a0; --g-blend: #e0b057; --g-scrap: #f0904a; --g-unusable: #6b7385;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #11151f; --surface: #1a2030; --sunk: #222a3d; --line: #323b52;
+  --fg: #e7eaf1; --muted: #a2aabb; --indigo: #2c3f6b; --on-indigo: #ffffff;
+  --thread: #f0904a; --thread-soft: #3a2a1f; --ok: #5cc4a0; --ok-soft: #1c3329; --warn: #e0b057; --bad: #ef7a6c;
+  --g-cA: #8fa8d8; --g-cB: #5b7fb8; --g-poly: #5cc4a0; --g-blend: #e0b057; --g-scrap: #f0904a; --g-unusable: #6b7385;
+  color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { background: var(--indigo); color: var(--on-indigo); }
+header.top .wrap { padding-block: 22px 18px; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+.brand h1 { font: 700 30px/1.1 var(--display); margin: 0; letter-spacing: -0.01em; }
+.brand p { margin: 4px 0 0; opacity: .85; font-size: 14px; }
+.brand em { color: #f4a76a; font-style: italic; }
+.proto { font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; border: 1px solid rgba(255,255,255,.4); padding: 6px 9px; border-radius: 4px; }
+nav.roles { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+nav.roles .wrap { display: flex; gap: 4px; overflow-x: auto; padding-block: 8px; }
+nav.roles button { flex: 0 0 auto; font: 500 14px var(--body); color: var(--muted); background: none; border: 0; padding: 9px 14px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; align-items: center; }
+nav.roles button .n { font: 500 11px var(--mono); border: 1px solid var(--line); border-radius: 50%; width: 20px; height: 20px; display: grid; place-items: center; }
+nav.roles button[aria-selected="true"] { color: var(--fg); background: var(--sunk); }
+nav.roles button[aria-selected="true"] .n { background: var(--thread); color: #fff; border-color: var(--thread); }
+nav.roles button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--thread); outline-offset: 2px; }
+main .wrap { padding-block: 22px 48px; }
+.impact { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin-bottom: 22px; }
+.impact div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.impact b { display: block; font: 600 22px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.impact span { color: var(--muted); font-size: 12.5px; }
+h2 { font: 700 23px/1.2 var(--display); margin: 0 0 4px; text-wrap: balance; }
+.lede { color: var(--muted); margin: 0 0 18px; max-width: 65ch; }
+.grid2 { display: grid; grid-template-columns: minmax(0,5fr) minmax(0,6fr); gap: 18px; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+.panel h3 { font: 600 15px var(--body); margin: 0 0 12px; }
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.field { margin-bottom: 14px; }
+input[type=number], input[type=text], select { width: 100%; font: 15px var(--body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--fg); }
+.check input { margin-top: 4px; }
+.btn { font: 600 14px var(--body); border: 0; border-radius: 6px; padding: 11px 16px; cursor: pointer; background: var(--thread); color: #fff; }
+.btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.tbl { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font: 500 11.5px var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.total td { font-weight: 600; border-bottom: 0; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+.mono { font-family: var(--mono); font-size: 13px; }
+.pill { display: inline-block; font: 500 12px var(--body); padding: 2px 9px; border-radius: 99px; white-space: nowrap; }
+.pill.wait { background: var(--thread-soft); color: var(--thread); }
+.pill.done { background: var(--ok-soft); color: var(--ok); }
+.pill.direct { background: var(--sunk); color: var(--fg); border: 1px solid var(--line); }
+.quote-big { font: 600 30px/1.1 var(--mono); font-variant-numeric: tabular-nums; margin: 2px 0 2px; }
+.note { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+.bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: var(--sunk); margin: 8px 0; }
+.bar i { display: block; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); }
+.lot-list { display: grid; gap: 8px; }
+.lot { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
+.lot[aria-pressed="true"] { border-color: var(--thread); box-shadow: 0 0 0 1px var(--thread); }
+.lot small { color: var(--muted); display: block; }
+.toast { margin-top: 14px; padding: 12px 14px; border-radius: 8px; background: var(--ok-soft); color: var(--fg); font-size: 14px; }
+.toast b { color: var(--ok); }
+.breakdown { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13.5px; }
+.breakdown .tot { font-weight: 600; border-top: 1px solid var(--line); padding-top: 6px; }
+.passports { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.pass { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+.pass header { display: flex; justify-content: space-between; gap: 10px; align-items: start; margin-bottom: 8px; }
+.pass h4 { margin: 0; font: 600 16px var(--body); }
+.pass ul { list-style: none; padding: 0; margin: 10px 0 0; font-size: 13.5px; display: grid; gap: 6px; }
+.pass li { display: flex; justify-content: space-between; gap: 10px; }
+.pass li span:last-child { color: var(--muted); text-align: right; }
+.divert { margin-top: 12px; font-size: 13px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.divert b { color: var(--ok); }
+.empty { color: var(--muted); font-size: 14px; padding: 12px 0; }
+.foot { color: var(--muted); font-size: 12.5px; margin-top: 30px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }
+@media (max-width: 760px) {
+  .grid2 { grid-template-columns: minmax(0,1fr); }
+  .impact { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (prefers-reduced-motion: no-preference) { .toast { animation: rise .25s ease-out; } @keyframes rise { from { transform: translateY(4px); opacity: .6; } } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1>LoopThread</h1>
+      <p>Fabric offcuts from Bengaluru's garment factories, graded and resold. <em>No offcut left behind.</em></p>
+    </div>
+    <span class="proto">Prototype · sample data · illustrative prices</span>
+  </div>
+</header>
+
+<nav class="roles" aria-label="Choose a role">
+  <div class="wrap" role="tablist">
+    <button role="tab" data-view="factory" aria-selected="true"><span class="n">1</span>Factory</button>
+    <button role="tab" data-view="hub" aria-selected="false"><span class="n">2</span>Sorting hub</button>
+    <button role="tab" data-view="buyer" aria-selected="false"><span class="n">3</span>Buyer</button>
+    <button role="tab" data-view="passport" aria-selected="false"><span class="n">4</span>Waste passport</button>
+  </div>
+</nav>
+
+<main>
+  <div class="wrap">
+    <section class="impact" id="impact" aria-label="Running totals"></section>
+
+    <!-- FACTORY -->
+    <section data-panel="factory">
+      <h2>List your offcuts and see the price first</h2>
+      <p class="lede">Tell us the fabric and the rough weight. You see what each grade pays per kg before anyone comes to collect.</p>
+      <div class="grid2">
+        <form class="panel" id="listForm">
+          <h3>New lot</h3>
+          <div class="field"><label for="fFactory">Factory</label>
+            <select id="fFactory"><option>Peenya Apparels, Unit 7</option><option>Bommanahalli Knits</option><option>Mysuru Road Garments</option></select></div>
+          <div class="field"><label for="fType">Main fabric in this lot</label>
+            <select id="fType"><option value="cotton">Cotton (woven / knit)</option><option value="denim">Denim</option><option value="polyester">Polyester</option><option value="blend">Poly-cotton blend</option><option value="mixed">Mixed, unsorted</option></select></div>
+          <div class="field"><label for="fKg">Approximate weight (kg)</label>
+            <input id="fKg" type="number" min="10" max="5000" step="10" value="400"></div>
+          <div class="field"><label class="check" for="fSas"><input id="fSas" type="checkbox" checked> Sorted at source into LoopThread's colour-coded bags</label></div>
+          <button class="btn" type="submit">Request pickup at this quote</button>
+          <div id="listToast"></div>
+        </form>
+        <div class="panel">
+          <h3>Your quote</h3>
+          <div class="muted" style="color:var(--muted);font-size:13px">Estimated payout for this lot</div>
+          <div class="quote-big" id="qTotal">₹0</div>
+          <div id="qRange" style="color:var(--muted);font-size:13px"></div>
+          <div class="bar" id="qBar"></div>
+          <div class="tbl"><table>
+            <thead><tr><th>Expected grade</th><th class="num">Est. kg</th><th class="num">You get /kg</th><th class="num">Amount</th></tr></thead>
+            <tbody id="qRows"></tbody>
+          </table></div>
+          <p class="note" id="qNote"></p>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:18px">
+        <h3>Your lots</h3>
+        <div class="tbl"><table>
+          <thead><tr><th>Lot</th><th>Factory</th><th>Fabric</th><th class="num">kg</th><th>Status</th><th class="num">Payout</th></tr></thead>
+          <tbody id="myLots"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- HUB -->
+    <section data-panel="hub" hidden>
+      <h2>Weigh, grade and tag each lot</h2>
+      <p class="lede">The hub team sorts the lot into grades and records the weights. That fixes the factory's final payout and moves each grade into stock for buyers.</p>
+      <div class="grid2">
+        <div class="panel">
+          <h3>Pickup queue</h3>
+          <div class="lot-list" id="queue"></div>
+        </div>
+        <div class="panel" id="gradePanel"></div>
+      </div>
+      <div id="hubToast"></div>
+    </section>
+
+    <!-- BUYER -->
+    <section data-panel="buyer" hidden>
+      <h2>Buy graded fabric by the kg</h2>
+      <p class="lede">You buy pooled, graded stock, not someone's random lot. Every price shows what goes to the factory, the hub, transport and LoopThread.</p>
+      <div class="grid2">
+        <div class="panel">
+          <h3>Available stock</h3>
+          <div class="tbl"><table>
+            <thead><tr><th>Grade</th><th class="num">In stock</th><th class="num">Landed /kg</th></tr></thead>
+            <tbody id="stockRows"></tbody>
+          </table></div>
+          <p class="note">Unusable fabric is never sold. It goes to cement-kiln co-processing instead of landfill or burning.</p>
+        </div>
+        <form class="panel" id="orderForm">
+          <h3>Place an order</h3>
+          <div class="field"><label for="bBuyer">Buyer</label>
+            <select id="bBuyer"><option>ReWeave Yarns</option><option>Kapda Upcycle Studio</option><option>SoftFill Mattresses</option><option>GreenFelt Insulation</option></select></div>
+          <div class="field"><label for="bGrade">Grade</label><select id="bGrade"></select></div>
+          <div class="field"><label for="bKg">Quantity (kg)</label><input id="bKg" type="number" min="10" step="10" value="100"></div>
+          <h3 style="margin-top:6px">Price breakdown per kg</h3>
+          <div class="breakdown" id="bBreak"></div>
+          <div style="margin-top:14px"><button class="btn" type="submit" id="bSubmit">Place order</button></div>
+          <div id="orderToast"></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- PASSPORT -->
+    <section data-panel="passport" hidden>
+      <h2>Waste passport for every lot</h2>
+      <p class="lede">Each lot keeps a record of where it came from, how it was graded and where every kilogram went. Factories and brands can use it as proof of responsible handling.</p>
+      <div class="passports" id="passports"></div>
+    </section>
+
+    <div class="foot">
+      <span>Prices and data are illustrative, for demonstration only. Built for IDEATHON HACK4SDG 2026, Goal 12.</span>
+      <button class="btn ghost" type="button" id="reset">Reset sample data</button>
+    </div>
+  </div>
+</main>
+
+<script>
+const GRADES = {
+  cA:       { name: "Cotton, grade A",        rate: 20, sell: true },
+  cB:       { name: "Cotton, grade B",        rate: 14, sell: true },
+  poly:     { name: "Polyester",              rate: 10, sell: true },
+  blend:    { name: "Blends / mixed",         rate: 8,  sell: true },
+  scrap:    { name: "Small scraps (filling)", rate: 3,  sell: true },
+  unusable: { name: "Unusable",               rate: 0,  sell: false },
+};
+const FEES = { sort: 5, transport: 3, platform: 2 };
+const SPLIT = {
+  cotton:    { cA: .60, cB: .25, blend: .07, scrap: .06, unusable: .02 },
+  denim:     { cA: .50, cB: .30, blend: .10, scrap: .08, unusable: .02 },
+  polyester: { poly: .80, blend: .10, scrap: .07, unusable: .03 },
+  blend:     { blend: .72, scrap: .20, unusable: .08 },
+  mixed:     { cA: .18, cB: .15, poly: .25, blend: .20, scrap: .16, unusable: .06 },
+};
+const TYPE_LABEL = { cotton: "Cotton", denim: "Denim", polyester: "Polyester", blend: "Poly-cotton blend", mixed: "Mixed" };
+const KEYS = Object.keys(GRADES);
+const inr = n => "₹" + Math.round(n).toLocaleString("en-IN");
+const kg = n => Math.round(n).toLocaleString("en-IN") + " kg";
+const landed = k => GRADES[k].rate + FEES.sort + FEES.transport + FEES.platform;
+const today = () => new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+
+function splitFor(type, sas) {
+  const s = { ...SPLIT[type] };
+  if (sas && type !== "mixed") { // cleaner bags: shift a little from scraps/unusable to the top grade
+    const top = s.cA != null ? "cA" : (s.poly != null ? "poly" : "blend");
+    const shift = (s.scrap || 0) * .3 + (s.unusable || 0) * .5;
+    if (s.scrap) s.scrap *= .7; if (s.unusable) s.unusable *= .5; s[top] += shift;
+  }
+  return s;
+}
+function isDirect(type, sas) { return sas && (type === "cotton" || type === "polyester"); }
+function payoutOf(fr) { return KEYS.reduce((t, k) => t + (fr[k] || 0) * GRADES[k].rate, 0); }
+
+let state, nextId;
+function seed() {
+  nextId = 104;
+  const mk = (id, factory, type, kgs, sas, graded, date) => {
+    const s = splitFor(type, sas); const fr = {}; KEYS.forEach(k => fr[k] = Math.round((s[k] || 0) * kgs));
+    return { id, factory, type, kg: kgs, sas, status: graded ? "graded" : "awaiting", date,
+      fractions: graded ? fr : null, remaining: graded ? { ...fr } : null, dest: graded && fr.unusable ? [{ grade: "unusable", kg: fr.unusable, to: "Cement-kiln co-processing" }] : [] };
+  };
+  state = { lots: [
+    mk("LT-101", "Peenya Apparels, Unit 7", "cotton", 620, true, true, "9 Oct"),
+    mk("LT-102", "Mysuru Road Garments", "mixed", 480, false, true, "10 Oct"),
+    mk("LT-103", "Bommanahalli Knits", "polyester", 350, true, false, "12 Oct"),
+  ], orders: [] };
+  // one earlier sale so the passport shows a destination
+  sell("ReWeave Yarns", "cA", 200);
+  selectedLot = "LT-103";
+}
+
+function sell(buyer, grade, qty) {
+  let left = qty;
+  for (const lot of state.lots) {
+    if (lot.status !== "graded" || !lot.remaining[grade] || left <= 0) continue;
+    const take = Math.min(left, lot.remaining[grade]);
+    lot.remaining[grade] -= take; left -= take;
+    const d = lot.dest.find(x => x.grade === grade && x.to === buyer);
+    if (d) d.kg += take; else lot.dest.push({ grade, kg: take, to: buyer });
+  }
+  state.orders.push({ buyer, grade, kg: qty - left });
+  return qty - left;
+}
+function stock(k) { return state.lots.reduce((t, l) => t + (l.status === "graded" ? (l.remaining[k] || 0) : 0), 0); }
+
+/* ---------- impact ---------- */
+function renderImpact() {
+  const graded = state.lots.filter(l => l.status === "graded");
+  const total = graded.reduce((t, l) => t + KEYS.reduce((a, k) => a + l.fractions[k], 0), 0);
+  const reusable = graded.reduce((t, l) => t + KEYS.filter(k => GRADES[k].sell).reduce((a, k) => a + l.fractions[k], 0), 0);
+  const paid = graded.reduce((t, l) => t + payoutOf(l.fractions), 0);
+  const sold = state.orders.reduce((t, o) => t + o.kg, 0);
+  document.getElementById("impact").innerHTML = `
+    <div><b>${kg(total)}</b><span>graded at the hub</span></div>
+    <div><b>${total ? Math.round(reusable / total * 100) : 0}%</b><span>reusable or recyclable</span></div>
+    <div><b>${kg(sold)}</b><span>sold to buyers</span></div>
+    <div><b>${inr(paid)}</b><span>paid to factories</span></div>`;
+}
+
+/* ---------- factory ---------- */
+const $ = id => document.getElementById(id);
+function renderQuote() {
+  const type = $("fType").value, sas = $("fSas").checked, w = Math.max(0, +$("fKg").value || 0);
+  const s = splitFor(type, sas);
+  let total = 0, rows = "", bar = "";
+  KEYS.forEach(k => {
+    if (!s[k]) return;
+    const q = s[k] * w, amt = q * GRADES[k].rate; total += amt;
+    rows += `<tr><td><span class="swatch" style="background:var(--g-${k})"></span>${GRADES[k].name}</td><td class="num">${kg(q)}</td><td class="num">${GRADES[k].rate ? inr(GRADES[k].rate) : "₹0"}</td><td class="num">${inr(amt)}</td></tr>`;
+    bar += `<i style="width:${s[k] * 100}%;background:var(--g-${k})" title="${GRADES[k].name}"></i>`;
+  });
+  rows += `<tr class="total"><td>Estimated total</td><td class="num">${kg(w)}</td><td></td><td class="num">${inr(total)}</td></tr>`;
+  $("qRows").innerHTML = rows; $("qBar").innerHTML = bar;
+  $("qTotal").textContent = inr(total);
+  $("qRange").textContent = `Likely range ${inr(total * .85)} to ${inr(total * 1.1)} · ${w ? inr(total / w) : "₹0"} per kg on average`;
+  $("qNote").innerHTML = (isDirect(type, sas) ? `<span class="pill direct">Direct-route eligible</span> Single-fibre and sorted at source, so this lot can skip hub sorting and go straight to a buyer. ` : "") +
+    "Your final payout is set after the hub weighs and grades the lot. You get a grade-by-grade statement.";
+}
+function renderMyLots() {
+  $("myLots").innerHTML = state.lots.map(l => `<tr><td class="mono">${l.id}</td><td>${l.factory}</td><td>${TYPE_LABEL[l.type]}</td><td class="num">${l.kg}</td>
+    <td>${l.status === "graded" ? '<span class="pill done">Graded, paid</span>' : '<span class="pill wait">Awaiting grading</span>'}</td>
+    <td class="num">${l.status === "graded" ? inr(payoutOf(l.fractions)) : "Quote " + inr(payoutOf(Object.fromEntries(KEYS.map(k => [k, (splitFor(l.type, l.sas)[k] || 0) * l.kg]))))}</td></tr>`).join("");
+}
+$("listForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const w = Math.round(+$("fKg").value || 0);
+  if (w < 10) { $("listToast").innerHTML = `<div class="toast">Enter at least 10 kg so a pickup is worth the trip.</div>`; return; }
+  const id = "LT-" + nextId++;
+  state.lots.push({ id, factory: $("fFactory").value, type: $("fType").value, kg: w, sas: $("fSas").checked, status: "awaiting", date: today(), fractions: null, remaining: null, dest: [] });
+  selectedLot = id;
+  $("listToast").innerHTML = `<div class="toast"><b>Pickup requested.</b> Lot <span class="mono">${id}</span> is in the hub queue. Open <b>Sorting hub</b> to grade it.</div>`;
+  renderAll();
+});
+["fType", "fKg", "fSas"].forEach(id => $(id).addEventListener("input", renderQuote));
+
+/* ---------- hub ---------- */
+let selectedLot = null;
+function renderHub() {
+  const q = state.lots.filter(l => l.status === "awaiting");
+  $("queue").innerHTML = q.length ? q.map(l => `<button type="button" class="lot" data-lot="${l.id}" aria-pressed="${l.id === selectedLot}">
+      <span><b class="mono">${l.id}</b> · ${TYPE_LABEL[l.type]}<small>${l.factory} · listed ${l.date}</small></span><span class="mono">${l.kg} kg</span></button>`).join("")
+    : `<p class="empty">No lots waiting. List a new lot from the Factory view.</p>`;
+  const lot = state.lots.find(l => l.id === selectedLot && l.status === "awaiting") || q[0];
+  if (!lot) { $("gradePanel").innerHTML = `<h3>Grading</h3><p class="empty">Select a lot from the queue.</p>`; return; }
+  selectedLot = lot.id;
+  const s = splitFor(lot.type, lot.sas);
+  $("gradePanel").innerHTML = `<h3>Grade lot <span class="mono">${lot.id}</span></h3>
+    <p class="note" style="margin-top:-6px">Weights are pre-filled from a typical sort for ${TYPE_LABEL[lot.type].toLowerCase()}. Adjust to what the scale shows.</p>
+    <div class="tbl"><table><thead><tr><th>Grade</th><th class="num">Weighed (kg)</th><th class="num">Factory gets</th></tr></thead><tbody>
+    ${KEYS.map(k => `<tr><td><span class="swatch" style="background:var(--g-${k})"></span>${GRADES[k].name}</td>
+      <td class="num"><input type="number" min="0" step="1" id="g_${k}" data-g="${k}" value="${Math.round((s[k] || 0) * lot.kg)}" style="width:92px;text-align:right"></td>
+      <td class="num" id="ga_${k}"></td></tr>`).join("")}
+    <tr class="total"><td>Total</td><td class="num" id="gKg"></td><td class="num" id="gAmt"></td></tr></tbody></table></div>
+    <div style="margin-top:14px"><button class="btn" type="button" id="confirmGrade">Confirm grading and pay factory</button></div>`;
+  recalcGrade();
+}
+function readGrade() { const f = {}; KEYS.forEach(k => f[k] = Math.max(0, Math.round(+$("g_" + k).value || 0))); return f; }
+function recalcGrade() {
+  const f = readGrade(); let t = 0;
+  KEYS.forEach(k => { $("ga_" + k).textContent = inr(f[k] * GRADES[k].rate); t += f[k]; });
+  $("gKg").textContent = kg(t); $("gAmt").textContent = inr(payoutOf(f));
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-lot]"); if (b) { selectedLot = b.dataset.lot; renderHub(); return; }
+  if (e.target.id === "confirmGrade") {
+    const lot = state.lots.find(l => l.id === selectedLot); const f = readGrade();
+    if (!KEYS.some(k => f[k] > 0)) { $("hubToast").innerHTML = `<div class="toast">Enter at least one weight before confirming.</div>`; return; }
+    lot.status = "graded"; lot.fractions = f; lot.remaining = { ...f }; lot.graded = today();
+    if (f.unusable) lot.dest.push({ grade: "unusable", kg: f.unusable, to: "Cement-kiln co-processing" });
+    renderAll();
+    $("hubToast").innerHTML = `<div class="toast"><b>Graded.</b> ${lot.factory} is paid ${inr(payoutOf(f))} for <span class="mono">${lot.id}</span>. Its grades are now in buyer stock and its waste passport is live.</div>`;
+  }
+});
+document.addEventListener("input", e => { if (e.target.dataset && e.target.dataset.g) recalcGrade(); });
+
+/* ---------- buyer ---------- */
+function renderBuyer() {
+  const sellable = KEYS.filter(k => GRADES[k].sell);
+  $("stockRows").innerHTML = sellable.map(k => `<tr><td><span class="swatch" style="background:var(--g-${k})"></span>${GRADES[k].name}</td><td class="num">${kg(stock(k))}</td><td class="num">${inr(landed(k))}</td></tr>`).join("");
+  const cur = $("bGrade").value || "cA";
+  $("bGrade").innerHTML = sellable.map(k => `<option value="${k}" ${k === cur ? "selected" : ""}>${GRADES[k].name} (${kg(stock(k))} available)</option>`).join("");
+  renderBreak();
+}
+function renderBreak() {
+  const k = $("bGrade").value, q = Math.max(0, +$("bKg").value || 0), avail = stock(k);
+  $("bBreak").innerHTML = `
+    <span>To the factory</span><span class="mono">${inr(GRADES[k].rate)}</span>
+    <span>Sorting hub</span><span class="mono">${inr(FEES.sort)}</span>
+    <span>Transport</span><span class="mono">${inr(FEES.transport)}</span>
+    <span>LoopThread fee</span><span class="mono">${inr(FEES.platform)}</span>
+    <span class="tot">Landed price per kg</span><span class="tot mono">${inr(landed(k))}</span>
+    <span class="tot">Order total (${kg(Math.min(q, avail))})</span><span class="tot mono">${inr(Math.min(q, avail) * landed(k))}</span>`;
+  $("bSubmit").disabled = !(q > 0 && avail > 0);
+  $("bSubmit").textContent = q > avail && avail > 0 ? `Order all ${kg(avail)} available` : "Place order";
+}
+$("orderForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const k = $("bGrade").value, q = Math.round(+$("bKg").value || 0), buyer = $("bBuyer").value;
+  const got = sell(buyer, k, Math.min(q, stock(k)));
+  renderAll();
+  $("orderToast").innerHTML = `<div class="toast"><b>Order placed.</b> ${buyer}: ${kg(got)} of ${GRADES[k].name} for ${inr(got * landed(k))}. The source lots' waste passports now show this destination.</div>`;
+});
+["bGrade", "bKg"].forEach(id => $(id).addEventListener("input", renderBreak));
+
+/* ---------- passport ---------- */
+function renderPassports() {
+  const lots = state.lots.filter(l => l.status === "graded").slice().reverse();
+  $("passports").innerHTML = lots.length ? lots.map(l => {
+    const tot = KEYS.reduce((a, k) => a + l.fractions[k], 0) || 1;
+    const placed = l.dest.reduce((a, d) => a + d.kg, 0);
+    const inStock = KEYS.filter(k => GRADES[k].sell).reduce((a, k) => a + l.remaining[k], 0);
+    const diverted = tot - 0; // nothing goes to landfill
+    return `<article class="pass">
+      <header><div><h4 class="mono">${l.id}</h4><div style="color:var(--muted);font-size:13px">${l.factory} · ${TYPE_LABEL[l.type]} · graded ${l.graded || l.date}</div></div><span class="pill done">Verified</span></header>
+      <div class="bar">${KEYS.filter(k => l.fractions[k]).map(k => `<i style="width:${l.fractions[k] / tot * 100}%;background:var(--g-${k})" title="${GRADES[k].name}"></i>`).join("")}</div>
+      <div class="legend">${KEYS.filter(k => l.fractions[k]).map(k => `<span><span class="swatch" style="background:var(--g-${k})"></span>${GRADES[k].name.replace(/ \(.*\)/, "")} ${l.fractions[k]} kg</span>`).join("")}</div>
+      <ul>${l.dest.map(d => `<li><span>${d.kg} kg ${GRADES[d.grade].name.replace(/ \(.*\)/, "")}</span><span>${d.to}</span></li>`).join("")}
+        ${inStock ? `<li><span>${inStock} kg graded</span><span>In stock at hub, awaiting buyers</span></li>` : ""}</ul>
+      <div class="divert"><b>${kg(diverted)}</b> kept out of landfill and open burning · factory paid ${inr(payoutOf(l.fractions))}</div>
+    </article>`; }).join("") : `<p class="empty">No graded lots yet. Grade a lot in the Sorting hub view to create its passport.</p>`;
+}
+
+/* ---------- shell ---------- */
+function renderAll() { renderImpact(); renderQuote(); renderMyLots(); renderHub(); renderBuyer(); renderPassports(); }
+document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
+function show(v) {
+  document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-selected", b.dataset.view === v));
+  document.querySelectorAll("[data-panel]").forEach(p => p.hidden = p.dataset.panel !== v);
+  try { if (location.hash.slice(1) !== v) history.replaceState(null, "", "#" + v); } catch (e) {}
+  window.scrollTo({ top: 0 });
+}
+$("reset").addEventListener("click", () => { seed(); ["listToast", "orderToast", "hubToast"].forEach(id => $(id).innerHTML = ""); renderAll(); });
+seed(); renderAll();
+const h = location.hash.slice(1); if (["factory", "hub", "buyer", "passport"].includes(h)) show(h);
+</script>
+</body></html>
